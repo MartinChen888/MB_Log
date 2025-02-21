@@ -3,7 +3,7 @@ import os
 import re
 import traceback
 import csv
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTextEdit, QFileDialog, QMessageBox
 from PyQt5.QtGui import QFont
 from datetime import datetime
 
@@ -12,6 +12,7 @@ class TextFileSearcher(QWidget):
         super().__init__()
         self.timestamps = {}  # 用來儲存關鍵字比對的時間戳
         self.filtered_lines = []  # 存儲處理後的日誌數據
+        self.filtered_lines2 = []  # 存儲處理後的日誌數據
         self.initUI()
 
     def initUI(self):
@@ -22,18 +23,32 @@ class TextFileSearcher(QWidget):
         self.textView.setFont(QFont("Arial", 15))
         layout.addWidget(self.textView)
 
+        # 按鈕區域 (Export & Clear) 並靠左對齊
+        button_layout = QHBoxLayout()
+        
         # "Export" 按鈕
         self.exportButton = QPushButton("Export", self)
         self.exportButton.setFixedSize(100, 40)
         self.exportButton.clicked.connect(self.exportToCSV)
-        layout.addWidget(self.exportButton)
+        button_layout.addWidget(self.exportButton)
+        
+        # "Clear" 按鈕
+        self.clearButton = QPushButton("Clear", self)
+        self.clearButton.setFixedSize(100, 40)
+        self.clearButton.clicked.connect(self.clearTextView)
+        button_layout.addWidget(self.clearButton)
+        
+        # 讓按鈕靠左對齊
+        button_layout.addStretch()  # ✅ 在按鈕後面增加彈性空間，使它們靠左
+        
+        layout.addLayout(button_layout)
         
         self.button = QPushButton("選擇檔案", self)
         self.button.clicked.connect(self.openFileDialog)
         layout.addWidget(self.button)
         
         self.setLayout(layout)
-        self.setWindowTitle("Log 動作分析器 V1.1")
+        self.setWindowTitle("Log 動作分析器 V1.2")
         self.resize(900, 750)
 
     def openFileDialog(self):
@@ -64,6 +79,7 @@ class TextFileSearcher(QWidget):
         try:
             self.timestamps = {}  # 清空時間戳記
             self.filtered_lines = []  # 清空已處理的日誌數據
+            self.filtered_lines2 = []  # 清空已處理的日誌數據
 
             with open(filePath, "r", encoding="utf-8") as file:
                 lines = file.readlines()
@@ -84,11 +100,26 @@ class TextFileSearcher(QWidget):
                     ("賦歸終點", "21 04 00 00 00", "full")
                 ]
                 
+                keywords2 = [
+                    ("時間起點", "ProfileAnalyzingTool Pre-start", "full"),
+                    ("QR終點", "ProfileAnalyzingTool QR finish", "full"),
+                    ("Urine終點", "ProfileAnalyzingTool Urine finish", "full"),
+                    ("Sample終點", "ProfileAnalyzingTool Sample finish", "full"),
+                    ("Tip終點", "ProfileAnalyzingTool Tip finish", "full"),
+                    ("停轉終點", "ProfileAnalyzingTool stop motor finish", "full"),
+                    ("夾放終點", "ProfileAnalyzingTool grip disc finish", "full"),
+                    ("吸打終點", "ProfileAnalyzingTool tip finish", "full"),
+                    ("Pre-起轉終點", "ProfileAnalyzingTool pre 1000 rpm finish", "full"),
+                    ("起轉終點", "ProfileAnalyzingTool pre carrier profile start", "full"),
+                    ("Profile終點", "ProfileAnalyzingTool Profile finish", "full"),
+                    ("賦歸終點", "ProfileAnalyzingTool disc recovery finish", "full")
+                ]
+                
                 # **第一步：處理並儲存符合條件的日誌行**
                 for line in lines:
                     if "Qbi cmd TX:" in line:
                         match = re.search(r'^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) D/loaderprotocol.*?Qbi cmd TX:(.*?)  2025', line)
-                        
+
                         if match:
                             timestamp_str = match.group(1).strip()
                             extracted_text = match.group(2).strip()
@@ -104,7 +135,25 @@ class TextFileSearcher(QWidget):
                                 
                                 previous_time = datetime.strptime(timestamp_str, "%m-%d %H:%M:%S.%f")
                                 self.filtered_lines.append((timestamp_str, time_diff, extracted_text))  # ✅ 存成 tuple
-                
+                                
+                    elif "ProfileAnalyzingTool" in line:
+                        match = re.search(r'^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+.*\s+ProfileAnalyzingTool\s+(.*)', line)
+                        if match:
+                            timestamp_str2 = match.group(1).strip()
+                            extracted_text2 = match.group(2).strip()
+                            
+                            if previous_time:
+                                try:
+                                    current_time = datetime.strptime(timestamp_str, "%m-%d %H:%M:%S.%f")
+                                    time_diff2 = str(int((current_time - previous_time).total_seconds() * 1000)) + " ms"
+                                except ValueError:
+                                    time_diff2 = "解析錯誤"
+                            else:
+                                time_diff2 = "0 ms"
+                                
+                            previous_time = datetime.strptime(timestamp_str, "%m-%d %H:%M:%S.%f")
+                            self.filtered_lines2.append((timestamp_str2, time_diff2, extracted_text2))  # ✅ 存成 tuple
+                              
                 # **第二步：依序比對 `keywords`**
                 keyword_index = 0
                 total_keywords = len(keywords)
@@ -116,33 +165,63 @@ class TextFileSearcher(QWidget):
                     key, value, match_type = keywords[keyword_index]
 
                     if match_type == "full" and extracted_text == value:
-                        self.timestamps[key] = timestamp_str
+                        #self.timestamps[key] = timestamp_str
                         keyword_index += 1  
                     
                     elif match_type == "first" and extracted_text.startswith(value):
-                        self.timestamps[key] = timestamp_str
-                        keyword_index += 1  
+                        #self.timestamps[key] = timestamp_str
+                        keyword_index += 1
+                        
+                # **比對 `keywords2`，存入 self.timestamps**
+                keyword2_index = 0
+                total_keywords2 = len(keywords2)
 
+                # **比對 `keywords2`，存入 self.timestamps**
+                for timestamp_str2, time_diff2, extracted_text2 in self.filtered_lines2:
+                    if keyword2_index >= total_keywords2:
+                        break  # ✅ 所有 keywords2 都匹配後就停止
 
+                    key, value, match_type = keywords2[keyword2_index]
+                    extracted_text2_clean = extracted_text2.strip()  # 移除前後空格
+                    value_clean = value.replace("ProfileAnalyzingTool ", "").strip()  # 移除開頭的 "ProfileAnalyzingTool "
+
+                    print(f"比對: '{extracted_text2_clean}' vs '{value_clean}'")  # 🛠️ Debug: 看比對過程
+
+                    if match_type == "full" and extracted_text2_clean == value_clean:
+                        self.timestamps[key] = timestamp_str2  # ✅ 成功匹配後存入
+                        print(f"✅ 匹配成功: {key} -> {timestamp_str2}")
+                        keyword2_index += 1  # ✅ 只移動到下一個關鍵字
+                        continue  # ✅ 繼續比對下一條日誌
+
+                    elif match_type == "first" and extracted_text2_clean.startswith(value_clean):
+                        self.timestamps[key] = timestamp_str2  # ✅ 成功匹配後存入
+                        print(f"✅ 匹配成功: {key} -> {timestamp_str2}")
+                        keyword2_index += 1  # ✅ 只移動到下一個關鍵字
+                        continue  # ✅ 繼續比對下一條日誌
+
+                # **檢查 self.timestamps 是否存入值**
+                print("存入的 timestamps:", self.timestamps)  # ✅ 確保 timestamps 不是空的
 
                 # **輸出結果**
                 analysis_result = "\n分析結果:\n"
-                for key, _, _ in keywords:
+                for key, _, _ in keywords2:  # ✅ 確保正確讀取 keywords2
                     analysis_result += f"{key}： {self.timestamps.get(key, '未找到')}\n"
                 
-                analysis_result += f"測試時間: {self.calculate_duration('時間起點', 'Profile終點')}\n"
-                analysis_result += f"QR Read  : {self.calculate_duration('時間起點', 'QR終點')}\n"
-                analysis_result += f"Urine    : {self.calculate_duration('QR終點', 'Urine終點')}\n"
-                analysis_result += f"Sample   : {self.calculate_duration('Urine終點', 'Sample終點')}\n"
-                analysis_result += f"Tip      : {self.calculate_duration('Sample終點', 'Tip終點')}\n"
-                analysis_result += f"停轉     : {self.calculate_duration('Tip終點', '停轉終點')}\n"
-                analysis_result += f"夾放     : {self.calculate_duration('停轉終點', '夾放終點')}\n"
-                analysis_result += f"吸打     : {self.calculate_duration('夾放終點', '吸打終點')}\n"
-                analysis_result += f"Profile  : {self.calculate_duration('起轉終點', 'Profile終點')}\n"
-                analysis_result += f"賦歸     : {self.calculate_duration('Profile終點', '賦歸終點')}\n"
+                analysis_result += f"測試時間 : {self.calculate_duration('時間起點', 'Profile終點')}\n"
+                analysis_result += f"QR Read : {self.calculate_duration('時間起點', 'QR終點')}\n"
+                analysis_result += f"Urine   : {self.calculate_duration('QR終點', 'Urine終點')}\n"
+                analysis_result += f"Sample  : {self.calculate_duration('Urine終點', 'Sample終點')}\n"
+                analysis_result += f"Tip     : {self.calculate_duration('Sample終點', 'Tip終點')}\n"
+                analysis_result += f"停轉    : {self.calculate_duration('Tip終點', '停轉終點')}\n"
+                analysis_result += f"夾放    : {self.calculate_duration('停轉終點', '夾放終點')}\n"
+                analysis_result += f"吸打    : {self.calculate_duration('夾放終點', '吸打終點')}\n"
+                analysis_result += f"Profile : {self.calculate_duration('起轉終點', 'Profile終點')}\n"
+                analysis_result += f"賦歸    : {self.calculate_duration('Profile終點', '賦歸終點')}\n"
 
 
-                self.textView.setPlainText("\n".join(["\t".join(map(str, item)) for item in self.filtered_lines]) + analysis_result)
+                # 修正輸出文本
+                self.textView.setPlainText("\n".join(["\t".join(map(str, item)) for item in self.filtered_lines])  + "\n\n\n" +
+                                           "\n".join(["\t".join(map(str, item)) for item in self.filtered_lines2]) + "\n" + analysis_result)
                 self.textView.moveCursor(self.textView.textCursor().End)
 
         except Exception as e:
@@ -160,6 +239,7 @@ class TextFileSearcher(QWidget):
                 writer = csv.writer(file)
                 writer.writerow(["時間戳", "時間差", "指令碼"])
                 writer.writerows(self.filtered_lines)
+                writer.writerows(self.filtered_lines2)
 
                 writer.writerow([])
                 writer.writerow(["項目", "時間"])
@@ -185,6 +265,13 @@ class TextFileSearcher(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "錯誤", f"無法儲存CSV:\n{str(e)}")
+            
+    def clearTextView(self):
+        """清空上方視窗內容"""
+        self.textView.clear()
+        self.timestamps = {}  # 清除時間戳記
+        self.filtered_lines = []  # 清除過濾的日誌數據
+        self.filtered_lines2 = []  # 清除過濾的日誌數據
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
