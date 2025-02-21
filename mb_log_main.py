@@ -118,7 +118,7 @@ class TextFileSearcher(QWidget):
                 # **第一步：處理並儲存符合條件的日誌行**
                 for line in lines:
                     if "Qbi cmd TX:" in line:
-                        match = re.search(r'^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) D/loaderprotocol.*?Qbi cmd TX:(.*?)  2025', line)
+                        match = re.search(r'^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) D/loaderprotocol.*?Qbi cmd TX:(.*?)  202', line)
 
                         if match:
                             timestamp_str = match.group(1).strip()
